@@ -1,6 +1,6 @@
 from .json_import import simplejson
 from six.moves.urllib.parse import urlencode
-from httplib2 import Http
+from httplib2 import Http, ProxyInfo
 import mimetypes
 import six
 
@@ -25,12 +25,14 @@ class OAuth2API(object):
     # override with 'Instagram', etc
     api_name = "Generic API"
 
-    def __init__(self, client_id=None, client_secret=None, client_ips=None, access_token=None, redirect_uri=None):
+    def __init__(self, client_id=None, client_secret=None, client_ips=None,
+                 access_token=None, redirect_uri=None, proxy=None):
         self.client_id = client_id
         self.client_secret = client_secret
         self.client_ips = client_ips
         self.access_token = access_token
         self.redirect_uri = redirect_uri
+        self.proxy = proxy
 
     def get_authorize_url(self, scope=None):
         req = OAuth2AuthExchangeRequest(self)
@@ -209,7 +211,18 @@ class OAuth2Request(object):
         headers = headers or {}
         if not 'User-Agent' in headers:
             headers.update({"User-Agent": "%s Python Client" % self.api.api_name})
+        http_kwargs = {}
+        if self.api.proxy:
+            http_kwargs['proxy_info'] = ProxyInfo(*self.api.proxy)
+            # https://github.com/jcgregorio/httplib2/issues/205
+            # cover bug in httplib2 with socks.wrapmodule
+            import socks
+            import httplib2
+            socks.setdefaultproxy(*self.api.proxy)
+            socks.wrapmodule(httplib2)
         # https://github.com/jcgregorio/httplib2/issues/173
         # bug in httplib2 w/ Python 3 and disable_ssl_certificate_validation=True
-        http_obj = Http() if six.PY3 else Http(disable_ssl_certificate_validation=True)        
+        if not six.PY3:
+            http_kwargs['disable_ssl_certificate_validation'] = True
+        http_obj = Http(**http_kwargs)
         return http_obj.request(url, method, body=body, headers=headers)
